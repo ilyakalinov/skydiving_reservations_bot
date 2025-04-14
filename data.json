@@ -1,0 +1,12 @@
+{
+  "settings": {
+    "months_ahead": 4,
+    "slots_per_day": 3,
+    "working_days": [],
+    "day_slots": {
+      "5": 3,
+      "6": 5
+    }
+  },
+  "bookings": {}
+}

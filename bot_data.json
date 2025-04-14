@@ -1,0 +1,15 @@
+{
+  "settings": {
+    "days_ahead": 14,
+    "slots_per_day": 3,
+    "working_days": [
+      5,
+      6
+    ]
+  },
+  "bookings": {
+    "2025-04-19": [
+      918969159
+    ]
+  }
+}
