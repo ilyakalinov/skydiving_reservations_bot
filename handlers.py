@@ -1,74 +1,191 @@
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import ContextTypes, CommandHandler, CallbackQueryHandler, MessageHandler, filters
+from telegram.ext import ContextTypes, ConversationHandler, CommandHandler, CallbackQueryHandler, MessageHandler, filters
 from config import *
 from database import data, save_data
-from utils import generate_schedule, is_date_available, show_month_selector, show_days_selector
+from utils import (
+    generate_month_calendar,
+    create_calendar_keyboard,
+    get_available_months
+)
 from datetime import datetime
 import re
+
+CHECK_EXISTING, CONFIRM_OVERRIDE = range(14, 16)
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "🪂 Привет! Я бот для записи на прыжки с парашютом!\n"
-        "📅 Команды:\n"
-        "/schedule — Посмотреть расписание\n"
-        "/book — Записаться на прыжок\n"
-        "/help — Список команд"
+        "📅 Основные команды:\n"
+        "/schedule - Посмотреть свободные даты и забронировать\n"
+        "/mybookings - Мои активные брони"
     )
+
+async def my_bookings(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    bookings = []
+    
+    # Поиск броней во всех датах
+    for date_str, bookings_list in data["confirmed_bookings"].items():
+        for booking in bookings_list:
+            if booking["user_id"] == user_id:
+                bookings.append({
+                    "date": date_str,
+                    "time": booking.get("time", "время не указано")
+                })
+    
+    if not bookings:
+        await update.message.reply_text("❌ У вас нет активных бронирований")
+        return
+    
+    text = "📌 Ваши активные брони:\n\n"
+    for idx, booking in enumerate(bookings, 1):
+        text += f"{idx}. {booking['date']} ({booking['time']})\n"
+    
+    keyboard = [
+        [InlineKeyboardButton(f"❌ Отменить бронь #{idx+1}", callback_data=f"cancel_booking:{booking['date']}:{user_id}")]
+        for idx, booking in enumerate(bookings)
+    ]
+    
+    await update.message.reply_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
+
+async def cancel_booking(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    
+    # Исправленный парсинг callback_data
+    parts = query.data.split(":")
+    if len(parts) != 3:
+        await query.edit_message_text("❌ Ошибка формата запроса")
+        return
+    
+    action, date_str, user_id = parts
+    user_id = int(user_id)
+    
+    if update.effective_user.id != user_id:
+        await query.edit_message_text("❌ Это не ваша бронь!")
+        return
+    
+    # Проверяем существование брони
+    if date_str not in data["confirmed_bookings"]:
+        await query.edit_message_text("❌ Бронь не найдена")
+        return
+    
+    # Удаление брони
+    data["confirmed_bookings"][date_str] = [
+        b for b in data["confirmed_bookings"][date_str]
+        if b["user_id"] != user_id
+    ]
+    
+    # Уведомление админа
+    await context.bot.send_message(
+        ADMIN_ID,
+        f"❌ Пользователь {user_id} отменил бронь на {date_str}"
+    )
+    
+    # Удаляем дату если нет броней
+    if not data["confirmed_bookings"][date_str]:
+        del data["confirmed_bookings"][date_str]
+    
+    save_data()
+    await query.edit_message_text("✅ Бронь успешно отменена. Место освобождено.")
+
+
+async def check_existing_booking(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    selected_date = context.user_data["booking_date"]
+    
+    # Проверяем есть ли активные брони
+    existing = any(
+        booking["user_id"] == user_id
+        for booking in data["confirmed_bookings"].get(selected_date, [])
+    )
+    
+    if existing:
+        keyboard = [
+            [InlineKeyboardButton("✅ Перезаписать", callback_data="confirm_override")],
+            [InlineKeyboardButton("❌ Отмена", callback_data="cancel_override")]
+        ]
+        await update.message.reply_text(
+            "⚠️ У вас уже есть бронь на эту дату. Перезаписать?",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+        return CHECK_EXISTING
+    else:
+        return await get_first_name(update, context)
+
 
 async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    text = (
-        "Вот доступные команды:\n"
-        "/schedule — Посмотреть расписание\n"
-        "/book — Записаться на прыжок\n"
-        "/view_bookings — Просмотр записей (админ)\n"
-        "/settings — Настройки (админ)\n"
-        "/help — Справка"
-    )
+    text = "Доступные команды:\n/schedule - Просмотр расписания и бронирование\n"
+    if update.effective_user.id == ADMIN_ID:
+        text += "\n/settings - Управление расписанием (только для администратора)"
     await update.message.reply_text(text)
 
+
 async def schedule_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    today = datetime.now().date()
+    available_months = get_available_months()
+    if not available_months:
+        await update.message.reply_text("❌ На ближайшие месяцы нет свободных мест")
+        return
+    
     buttons = []
-    for i in range(data["settings"]["months_ahead"]):
-        year = today.year + (today.month + i - 1) // 12
-        month = (today.month + i) % 12 or 12
+    for year, month in available_months:
         month_name = datetime(year, month, 1).strftime("%B %Y")
         buttons.append(InlineKeyboardButton(month_name, callback_data=f"month:{year}:{month}"))
     
     keyboard = [buttons[i:i+2] for i in range(0, len(buttons), 2)]
     await update.message.reply_text(
-        "Выберите месяц:",
+        "📅 Выберите месяц:",
         reply_markup=InlineKeyboardMarkup(keyboard)
     )
 
 async def show_month_schedule(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    _, year_str, month_str = query.data.split(":")
-    schedule = generate_schedule(int(year_str), int(month_str))
     
-    text = f"📅 Расписание:\n" + "\n".join(
-        f"{date} — {slots} мест" for date, slots in schedule.items()
-    )
-    await query.edit_message_text(text)
-
-async def book_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    schedule = generate_schedule()
-    keyboard = [
-        [InlineKeyboardButton(f"{date} ({slots})", callback_data=f"book:{date}")]
-        for date, slots in schedule.items()
-    ]
-    await update.message.reply_text(
-        "Выберите дату:",
-        reply_markup=InlineKeyboardMarkup(keyboard)
-    )
+    try:
+        _, year_str, month_str = query.data.split(":")
+        year = int(year_str)
+        month = int(month_str)
+        
+        schedule = generate_month_calendar(year, month)
+        if not schedule:
+            await query.edit_message_text("❌ В этом месяце нет доступных дней")
+            return
+        
+        keyboard = create_calendar_keyboard(schedule, mode="booking")
+        await query.edit_message_text(
+            f"🗓️ {datetime(year, month, 1).strftime('%B %Y')}\nДоступные дни:",
+            reply_markup=keyboard)
+    except Exception as e:
+        logger.error(f"Error: {e}")
+        await query.edit_message_text("❌ Ошибка при загрузке расписания")
 
 async def start_booking(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     context.user_data["booking_date"] = query.data.split(":")[1]
-    await query.edit_message_text("Введите ваше имя:")
-    return GET_FIRST_NAME
+    
+    # Проверка существующих броней
+    user_id = update.effective_user.id
+    existing = any(
+        booking["user_id"] == user_id
+        for bookings in data["confirmed_bookings"].values()
+        for booking in bookings
+    )
+    
+    if existing:
+        keyboard = [
+            [InlineKeyboardButton("✅ Перезаписать", callback_data="confirm_override")],
+            [InlineKeyboardButton("❌ Отмена", callback_data="cancel_override")]
+        ]
+        await query.edit_message_text(
+            "⚠️ У вас уже есть активные брони. Перезаписать?",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+        return CHECK_EXISTING
+    else:
+        await query.edit_message_text("Введите ваше имя:")
+        return GET_FIRST_NAME
 
 async def get_first_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data["first_name"] = update.message.text
@@ -83,8 +200,7 @@ async def get_last_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def get_age(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         age = int(update.message.text)
-        if not 18 <= age <= 100:
-            raise ValueError
+        if not 18 <= age <= 100: raise ValueError
         context.user_data["age"] = age
         await update.message.reply_text("Введите вес (кг):")
         return GET_WEIGHT
@@ -95,8 +211,7 @@ async def get_age(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def get_weight(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         weight = float(update.message.text)
-        if not 40 <= weight <= 150:
-            raise ValueError
+        if not 40 <= weight <= 150: raise ValueError
         context.user_data["weight"] = weight
         await update.message.reply_text("Введите телефон:")
         return GET_PHONE
@@ -131,34 +246,60 @@ async def get_phone(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("✅ Заявка отправлена на модерацию")
     return ConversationHandler.END
 
-async def view_bookings(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id != ADMIN_ID:
-        await update.message.reply_text("❌ Доступ запрещён")
-        return
-    
-    text = "⏳ Ожидают подтверждения:\n"
-    for date, bookings in data["pending_bookings"].items():
-        text += f"{date}:\n" + "\n".join(f"- {b['first_name']} {b['last_name']}" for b in bookings) + "\n\n"
-    
-    text += "✅ Подтвержденные:\n"
-    for date, bookings in data["confirmed_bookings"].items():
-        text += f"{date}:\n" + "\n".join(f"- {b['first_name']} {b['last_name']}" for b in bookings) + "\n\n"
-    
-    await update.message.reply_text(text)
-
 async def finalize_booking(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    booking = context.user_data["booking"]
-    date = context.user_data["date"]
+    booking = context.user_data.get("current_booking")
+    date = context.user_data.get("original_date")
+    
+    # Получаем установленное время
+    booking_time = context.user_data.get("booking_time", "")
+    
+    if not booking or not date:
+        await update.message.reply_text("❌ Ошибка: данные брони не найдены")
+        return ConversationHandler.END
+    
+    # Добавляем время в данные брони
+    if booking_time:
+        booking["time"] = booking_time
+        date_message = f"{date} в {booking_time}"
+    else:
+        date_message = date
+    
     data["confirmed_bookings"].setdefault(date, []).append(booking)
-    data["pending_bookings"][date] = [b for b in data["pending_bookings"][date] if b["user_id"] != booking["user_id"]]
+    if date in data["pending_bookings"]:
+        data["pending_bookings"][date] = [
+            b for b in data["pending_bookings"][date] 
+            if b["user_id"] != booking["user_id"]
+        ]
     save_data()
     
+    # Сообщение с временем
     await context.bot.send_message(
         booking["user_id"],
         "🎉 Ваша заявка подтверждена!\n"
-        f"📅 Дата: {date}\n"
+        f"📅 Дата и время: {date_message}\n"
         "📍 Аэродром 'Сокол'\n"
         "При себе иметь паспорт и мед. справку"
     )
     await update.message.reply_text("✅ Бронь подтверждена")
+    
+    # Очищаем временные данные
+    context.user_data.clear()
     return ConversationHandler.END
+
+async def handle_override(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    
+    if query.data == "confirm_override":
+        # Удаляем старую бронь
+        user_id = update.effective_user.id
+        selected_date = context.user_data["booking_date"]
+        data["confirmed_bookings"][selected_date] = [
+            b for b in data["confirmed_bookings"].get(selected_date, [])
+            if b["user_id"] != user_id
+        ]
+        await query.edit_message_text("Введите ваше имя:")
+        return GET_FIRST_NAME
+    else:
+        await query.edit_message_text("❌ Бронирование отменено")
+        return ConversationHandler.END

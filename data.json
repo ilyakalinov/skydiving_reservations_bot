@@ -1,12 +1,83 @@
 {
   "settings": {
-    "months_ahead": 4,
+    "months_ahead": 3,
     "slots_per_day": 3,
-    "working_days": [],
+    "working_days": [
+      5,
+      6
+    ],
     "day_slots": {
       "5": 3,
       "6": 5
+    },
+    "specific_days": {
+      "2025-04-12": 8,
+      "2025-05-24": 20,
+      "2025-05-18": 6,
+      "2025-04-19": 2,
+      "2025-06-13": 20,
+      "2025-06-21": 3,
+      "2025-07-13": 8,
+      "2025-07-20": 5
     }
   },
-  "bookings": {}
+  "pending_bookings": {
+    "2025-05-24": [],
+    "2025-06-13": []
+  },
+  "confirmed_bookings": {
+    "2025-06-13": [
+      {
+        "booking_date": "2025-06-13",
+        "first_name": "ивл",
+        "last_name": "фцыв",
+        "age": 22,
+        "weight": 90.0,
+        "user_id": 918969159,
+        "phone": "+375298933794"
+      }
+    ],
+    "2025-05-24": [
+      {
+        "selected_month": 6,
+        "selected_date": "2025-06-13",
+        "booking_date": "2025-05-24",
+        "first_name": "илья",
+        "last_name": "калинов",
+        "age": 26,
+        "weight": 90.0,
+        "user_id": 918969159,
+        "phone": "+375298933794"
+      },
+      {
+        "booking_date": "2025-05-24",
+        "first_name": "sad",
+        "last_name": "asdasd",
+        "age": 33,
+        "weight": 80.0,
+        "current_booking": {
+          "booking_date": "2025-05-24",
+          "first_name": "dfasf",
+          "last_name": "222",
+          "age": 24,
+          "weight": 80.0,
+          "user_id": 918969159,
+          "phone": "+375298933794"
+        },
+        "original_date": "2025-05-24",
+        "user_id": 918969159,
+        "phone": "+375298933794"
+      },
+      {
+        "booking_date": "2025-05-24",
+        "first_name": "sads",
+        "last_name": "saadssda",
+        "age": 33,
+        "weight": 50.0,
+        "user_id": 918969159,
+        "phone": "+37529893364",
+        "time": "22:30"
+      }
+    ]
+  }
 }

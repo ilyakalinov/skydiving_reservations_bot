@@ -11,7 +11,9 @@ def load_data():
     global data
     try:
         with open(DATA_FILE, "r") as f:
-            data.update(json.load(f))
+            loaded_data = json.load(f)
+            loaded_data["settings"] = {**DEFAULT_SETTINGS, **loaded_data.get("settings", {})}
+            data.update(loaded_data)
     except (FileNotFoundError, json.JSONDecodeError):
         save_data()
 

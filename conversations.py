@@ -17,15 +17,16 @@ from handlers import (
     get_age,
     get_weight,
     get_phone,
-    show_month_schedule,
+    handle_override,
     finalize_booking
 )
 from datetime import datetime
 
 # ---------- Booking Conversation ----------
 booking_conv = ConversationHandler(
-    entry_points=[CallbackQueryHandler(start_booking, pattern=r"^book:")],
+    entry_points=[CallbackQueryHandler(start_booking, pattern=r"^book:\d{4}-\d{2}-\d{2}")],  
     states={
+        CHECK_EXISTING: [CallbackQueryHandler(handle_override)],
         GET_FIRST_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_first_name)],
         GET_LAST_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_last_name)],
         GET_AGE: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_age)],
@@ -54,8 +55,8 @@ async def handle_admin_confirmation(update: Update, context: ContextTypes.DEFAUL
             await query.edit_message_text("❌ Заявка не найдена")
             return
 
-        context.user_data["current_booking"] = booking
-        context.user_data["original_date"] = date_str
+        context.user_data["current_booking"] = booking 
+        context.user_data["original_date"] = date_str   
         context.user_data["user_id"] = user_id
 
         if action == "confirm":
@@ -87,7 +88,6 @@ async def handle_admin_confirmation(update: Update, context: ContextTypes.DEFAUL
         await query.edit_message_text("Введите время в формате ЧЧ:ММ (например 14:30):")
         return SET_TIME
 
-
 async def handle_date_change(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -118,7 +118,6 @@ async def handle_date_change(update: Update, context: ContextTypes.DEFAULT_TYPE)
         )
         return CONFIRM_ACTION
 
-
 async def handle_time_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         time_str = update.message.text
@@ -128,7 +127,6 @@ async def handle_time_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except ValueError:
         await update.message.reply_text("❌ Неверный формат времени. Используйте ЧЧ:ММ (например 14:30):")
         return SET_TIME
-
 
 confirm_conv = ConversationHandler(
     entry_points=[CallbackQueryHandler(handle_admin_confirmation, pattern=r"^(confirm|reject)_")],
@@ -144,45 +142,58 @@ confirm_conv = ConversationHandler(
     per_message=False,
 )
 
-# ---------- Settings Conversation (добавим заглушки) ----------
-
+# ---------- Settings Conversation ----------
 async def settings_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("Настройки пока в разработке.")
+    if update.effective_user.id != ADMIN_ID:
+        await update.message.reply_text("❌ Доступ запрещён")
+        return ConversationHandler.END
+    
+    await show_month_selector(update.message, mode="settings")
+    return SETTING_ACTION
 
-async def setting_action(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    pass  # заглушка
+async def handle_settings_month(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    month = int(query.data.split("_")[2])
+    context.user_data["selected_month"] = month
+    await show_days_selector(query, month, mode="settings")
+    return SET_SPECIFIC_DAY
 
-async def set_days_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    pass  # заглушка
+async def handle_day_selection(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    day = int(query.data.split("_")[2])
+    month = context.user_data["selected_month"]
+    year = datetime.now().year
+    date_str = f"{year}-{month:02}-{day:02}"
+    
+    context.user_data["selected_date"] = date_str
+    await query.edit_message_text(f"Введите количество слотов для {date_str}:")
+    return SET_SLOTS
 
-async def set_slots_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    pass  # заглушка
-
-async def set_months_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    pass  # заглушка
-
-async def specific_days_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    pass  # заглушка
-
-async def handle_specific_day(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    pass  # заглушка
-
-async def save_specific_day_slots(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    pass  # заглушка
+async def save_slots(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    try:
+        slots = int(update.message.text)
+        if slots < 1: raise ValueError
+        date_str = context.user_data["selected_date"]
+        data["settings"]["specific_days"][date_str] = slots
+        save_data()
+        await update.message.reply_text(f"✅ Для {date_str} установлено {slots} слотов!")
+        return ConversationHandler.END
+    except ValueError:
+        await update.message.reply_text("❌ Введите целое число больше 0")
+        return SET_SLOTS
 
 settings_conv = ConversationHandler(
     entry_points=[CommandHandler('settings', settings_command)],
     states={
-        SETTING_ACTION: [CallbackQueryHandler(setting_action)],
-        SET_DAYS: [CallbackQueryHandler(set_days_handler)],
-        SET_SLOTS: [MessageHandler(filters.TEXT & ~filters.COMMAND, set_slots_handler)],
-        SET_MONTHS: [MessageHandler(filters.TEXT & ~filters.COMMAND, set_months_handler)],
+        SETTING_ACTION: [CallbackQueryHandler(handle_settings_month, pattern=r"^settings_month_")],
         SET_SPECIFIC_DAY: [
-            CallbackQueryHandler(specific_days_handler),
-            MessageHandler(filters.TEXT & ~filters.COMMAND, handle_specific_day),
-            MessageHandler(filters.TEXT & ~filters.COMMAND, save_specific_day_slots),
+            CallbackQueryHandler(handle_day_selection, pattern=r"^config_day_"),
+            CallbackQueryHandler(settings_command, pattern=r"^back_settings")
         ],
+        SET_SLOTS: [MessageHandler(filters.TEXT & ~filters.COMMAND, save_slots)]
     },
-    fallbacks=[],
+    fallbacks=[CommandHandler('cancel', lambda u,c: ConversationHandler.END)],
     per_message=False,
 )
