@@ -22,13 +22,7 @@ def generate_schedule(year=None, month=None):
 
     for year, month in months:
         month_start = datetime(year, month, 1).date()
-        if month == 12:
-            next_month = 1
-            next_year = year + 1
-        else:
-            next_month = month + 1
-            next_year = year
-        month_end = datetime(next_year, next_month, 1).date() - timedelta(days=1)
+        month_end = (month_start.replace(month=month % 12 + 1) - timedelta(days=1)).date()
         
         current_date = month_start
         while current_date <= month_end:
@@ -44,10 +38,9 @@ def generate_schedule(year=None, month=None):
     return schedule
 
 def is_date_available(date_str):
-    max_slots = data["settings"]["day_slots"].get(
-        str(datetime.fromisoformat(date_str).weekday()),
-        data["settings"]["slots_per_day"]
-    )
+    date_obj = datetime.fromisoformat(date_str).date()
+    weekday = date_obj.weekday()
+    max_slots = data["settings"]["day_slots"].get(str(weekday), data["settings"]["slots_per_day"])
     current_bookings = len(data["confirmed_bookings"].get(date_str, []))
     return current_bookings < max_slots
 
@@ -63,27 +56,23 @@ def show_month_selector(message):
     )
 
 def show_days_selector(query, month):
-    now = datetime.now()
-    year = now.year
+    year = datetime.now().year
     num_days = calendar.monthrange(year, month)[1]
     
     keyboard = []
-    week_row = []
-    
+    week = []
     for day in range(1, num_days + 1):
         date = datetime(year, month, day)
-        if date.weekday() in data["settings"]["working_days"]:
-            week_row.append(InlineKeyboardButton(f"{day}⭐", callback_data=f"day_{day}"))
-        else:
-            week_row.append(InlineKeyboardButton(str(day), callback_data=f"day_{day}"))
-        
-        if date.weekday() == 6 or day == num_days:
-            keyboard.append(week_row)
-            week_row = []
-    
+        btn_text = f"{day}⭐" if date.weekday() in data["settings"]["working_days"] else str(day)
+        week.append(InlineKeyboardButton(btn_text, callback_data=f"day_{day}"))
+        if date.weekday() == 6:
+            keyboard.append(week)
+            week = []
+    if week:
+        keyboard.append(week)
     keyboard.append([InlineKeyboardButton("Назад", callback_data="back")])
-    month_name = datetime(year, month, 1).strftime("%B")
+    
     return query.edit_message_text(
-        f"Выберите день в {month_name}:",
+        f"Выберите день:",
         reply_markup=InlineKeyboardMarkup(keyboard)
     )

@@ -1,21 +1,11 @@
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import ConversationHandler, CallbackQueryHandler, MessageHandler, filters, ContextTypes
-from config import *
-from database import data, save_data
-from utils import show_month_selector, show_days_selector, is_date_available
+from telegram.ext import ApplicationBuilder, CommandHandler, CallbackQueryHandler
+from config import BOT_TOKEN
+from database import load_data
 from handlers import (
-    start_booking,
-    get_first_name,
-    get_last_name,
-    get_age,
-    get_weight,
-    get_phone,
-    show_month_schedule
+    start, help_cmd, schedule_cmd, 
+    book_cmd, view_bookings, show_month_schedule
 )
-from datetime import datetime
-from conversations import (
-    booking_conv, confirm_conv, settings_conv
-)
+from conversations import booking_conv, confirm_conv, settings_conv
 
 def main():
     load_data()

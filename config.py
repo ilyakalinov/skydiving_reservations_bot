@@ -7,7 +7,6 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Состояния ConversationHandler
 (
     SETTING_ACTION, SET_DAYS, SET_SLOTS, SET_MONTHS, SET_SPECIFIC_DAY,
     BOOKING_START, GET_FIRST_NAME, GET_LAST_NAME, GET_AGE, GET_WEIGHT, GET_PHONE,
