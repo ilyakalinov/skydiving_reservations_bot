@@ -87,6 +87,12 @@ async def handle_admin_confirmation(update: Update, context: ContextTypes.DEFAUL
     elif query.data == "set_time":
         await query.edit_message_text("Введите время в формате ЧЧ:ММ (например 14:30):")
         return SET_TIME
+    elif query.data == "back_to_date":
+        await show_month_selector(query.message)
+        return CHANGE_DATE
+    elif query.data == "back_to_time":
+        await query.edit_message_text("Введите время в формате ЧЧ:ММ:")
+        return SET_TIME
 
 async def handle_date_change(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -110,9 +116,10 @@ async def handle_date_change(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
         context.user_data["new_date"] = new_date
         await query.edit_message_text(
-            f"Новая дата: {new_date}\nХотите установить время?",
+            f"Новая дата: {new_date}\nХотите установить время или изменить дату?",
             reply_markup=InlineKeyboardMarkup([
                 [InlineKeyboardButton("⏰ Установить время", callback_data="set_time")],
+                [InlineKeyboardButton("📅 Изменить дату", callback_data="back_to_date")],
                 [InlineKeyboardButton("✅ Подтвердить", callback_data="approve_as_is")],
             ])
         )
@@ -123,15 +130,27 @@ async def handle_time_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
         time_str = update.message.text
         datetime.strptime(time_str, "%H:%M")
         context.user_data["booking_time"] = time_str
-        return await finalize_booking(update, context)
+        
+        # Предложить изменить дату после установки времени
+        await update.message.reply_text(
+            "Время установлено. Хотите изменить дату?",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("📅 Изменить дату", callback_data="back_to_date")],
+                [InlineKeyboardButton("✅ Подтвердить", callback_data="approve_as_is")],
+            ])
+        )
+        return CONFIRM_ACTION
     except ValueError:
-        await update.message.reply_text("❌ Неверный формат времени. Используйте ЧЧ:ММ (например 14:30):")
+        await update.message.reply_text("❌ Неверный формат времени. Используйте ЧЧ:ММ:")
         return SET_TIME
 
 confirm_conv = ConversationHandler(
     entry_points=[CallbackQueryHandler(handle_admin_confirmation, pattern=r"^(confirm|reject)_")],
     states={
-        CONFIRM_ACTION: [CallbackQueryHandler(handle_admin_confirmation)],
+        CONFIRM_ACTION: [
+            CallbackQueryHandler(handle_admin_confirmation),
+            CallbackQueryHandler(handle_date_change, pattern=r"^back_to_date"),
+        ],
         CHANGE_DATE: [
             CallbackQueryHandler(handle_date_change, pattern=r"^month_"),
             CallbackQueryHandler(handle_date_change, pattern=r"^day_"),
@@ -167,19 +186,37 @@ async def handle_day_selection(update: Update, context: ContextTypes.DEFAULT_TYP
     year = datetime.now().year
     date_str = f"{year}-{month:02}-{day:02}"
     
+    # Получаем текущие бронирования
+    current_bookings = len(data["confirmed_bookings"].get(date_str, []))
+    
     context.user_data["selected_date"] = date_str
-    await query.edit_message_text(f"Введите количество слотов для {date_str}:")
+    await query.edit_message_text(
+        f"Введите количество слотов для {date_str} (активных бронирований: {current_bookings}):"
+    )
     return SET_SLOTS
 
 async def save_slots(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         slots = int(update.message.text)
-        if slots < 1: raise ValueError
         date_str = context.user_data["selected_date"]
+        
+        # Проверяем текущие бронирования
+        current_bookings = len(data["confirmed_bookings"].get(date_str, []))
+        
+        if slots < current_bookings:
+            await update.message.reply_text(
+                f"❌ Нельзя установить меньше {current_bookings} слотов (столько активных бронирований)"
+            )
+            return SET_SLOTS
+            
+        if slots < 1: 
+            raise ValueError
+            
         data["settings"]["specific_days"][date_str] = slots
         save_data()
         await update.message.reply_text(f"✅ Для {date_str} установлено {slots} слотов!")
         return ConversationHandler.END
+        
     except ValueError:
         await update.message.reply_text("❌ Введите целое число больше 0")
         return SET_SLOTS

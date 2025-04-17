@@ -54,12 +54,12 @@ async def cancel_booking(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     # Исправленный парсинг callback_data
     parts = query.data.split(":")
-    if len(parts) != 3:
+    if len(parts) != 3 or parts[0] != "cancel_booking":
         await query.edit_message_text("❌ Ошибка формата запроса")
         return
     
-    action, date_str, user_id = parts
-    user_id = int(user_id)
+    _, date_str, user_id_str = parts
+    user_id = int(user_id_str)
     
     if update.effective_user.id != user_id:
         await query.edit_message_text("❌ Это не ваша бронь!")
@@ -76,17 +76,18 @@ async def cancel_booking(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if b["user_id"] != user_id
     ]
     
+    # Удаляем дату если нет броней
+    if not data["confirmed_bookings"][date_str]:
+        del data["confirmed_bookings"][date_str]
+    
+    save_data()
+    
     # Уведомление админа
     await context.bot.send_message(
         ADMIN_ID,
         f"❌ Пользователь {user_id} отменил бронь на {date_str}"
     )
     
-    # Удаляем дату если нет броней
-    if not data["confirmed_bookings"][date_str]:
-        del data["confirmed_bookings"][date_str]
-    
-    save_data()
     await query.edit_message_text("✅ Бронь успешно отменена. Место освобождено.")
 
 
@@ -163,23 +164,23 @@ async def show_month_schedule(update: Update, context: ContextTypes.DEFAULT_TYPE
 async def start_booking(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    context.user_data["booking_date"] = query.data.split(":")[1]
-    
-    # Проверка существующих броней
+    selected_date = query.data.split(":")[1]  # Получаем выбранную дату
+    context.user_data["booking_date"] = selected_date
+
+    # Проверяем брони ТОЛЬКО в выбранный день
     user_id = update.effective_user.id
     existing = any(
         booking["user_id"] == user_id
-        for bookings in data["confirmed_bookings"].values()
-        for booking in bookings
+        for booking in data["confirmed_bookings"].get(selected_date, [])
     )
-    
+
     if existing:
         keyboard = [
             [InlineKeyboardButton("✅ Перезаписать", callback_data="confirm_override")],
             [InlineKeyboardButton("❌ Отмена", callback_data="cancel_override")]
         ]
         await query.edit_message_text(
-            "⚠️ У вас уже есть активные брони. Перезаписать?",
+            "⚠️ У вас уже есть бронь на эту дату. Перезаписать?",
             reply_markup=InlineKeyboardMarkup(keyboard)
         )
         return CHECK_EXISTING

@@ -2,7 +2,7 @@ from telegram.ext import ApplicationBuilder, CommandHandler, CallbackQueryHandle
 from telegram import BotCommand, BotCommandScopeChat
 from config import BOT_TOKEN, ADMIN_ID
 from database import load_data
-from handlers import start, help_cmd, schedule_cmd, show_month_schedule, my_bookings  # Добавлен импорт
+from handlers import start, help_cmd, schedule_cmd, show_month_schedule, my_bookings,cancel_booking # Добавлен импорт
 from conversations import booking_conv, confirm_conv, settings_conv
 import logging
 
@@ -38,8 +38,9 @@ def main():
     app.add_handler(CommandHandler("help", help_cmd))
     app.add_handler(CommandHandler("schedule", schedule_cmd))
     app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("mybookings", my_bookings))
-    
+    app.add_handler(CommandHandler("mybookings", my_bookings)),
+
+    app.add_handler(CallbackQueryHandler(cancel_booking, pattern=r"^cancel_booking:"))
     app.add_handler(CallbackQueryHandler(show_month_schedule, pattern=r"^month:"))
     app.add_handler(booking_conv)
     app.add_handler(confirm_conv)
